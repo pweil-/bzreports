@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
-	"strings"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -13,15 +16,14 @@ import (
 /*
 New bugs today
 How many bugs were resolved from the query (ie. closed, verified, or moved off the team)
- */
-
+*/
 
 type Config struct {
-	ComponentOwners   map[string][]string
-	Components []string
-	DataDir string
-	User string
-	Password string
+	ComponentOwners map[string][]string
+	Components      []string
+	DataDir         string
+	User            string
+	Password        string
 }
 
 type Server struct {
@@ -30,22 +32,22 @@ type Server struct {
 
 // initial struct borrowed from github.com/dmacvicar/gorgojo
 type Bug struct {
-	Id int `xmlrpc:"id"`
-	Summary string `xmlrpc:"summary"`
-	CreationTime time.Time `xmlrpc:"creation_time"`
-	AssignedTo string `xmlrpc:"assigned_to"`
-	Component []string `xmlrpc:"component"`
+	Id             int       `xmlrpc:"id"`
+	Summary        string    `xmlrpc:"summary"`
+	CreationTime   time.Time `xmlrpc:"creation_time"`
+	AssignedTo     string    `xmlrpc:"assigned_to"`
+	Component      []string  `xmlrpc:"component"`
 	LastChangeTime time.Time `xmlrpc:"last_change_time"`
-	Severity string `xmlrpc:"severity"`
-	Status string `xmlrpc:"status"`
-	Keywords []string `xmlrpc:"keywords"`
-	Version []string `xmlrpc:"version"`
+	Severity       string    `xmlrpc:"severity"`
+	Status         string    `xmlrpc:"status"`
+	Keywords       []string  `xmlrpc:"keywords"`
+	Version        []string  `xmlrpc:"version"`
 }
 
 var (
 	products = []string{"OpenShift Container Platform", "OpenShift Online", "OpenShift Origin"}
 	severity = []string{"unspecified", "urgent", "high", "medium"}
-	status = []string{"NEW", "ASSIGNED", "POST", "MODIFIED", "ON_DEV"}
+	status   = []string{"NEW", "ASSIGNED", "POST", "MODIFIED", "ON_DEV"}
 )
 
 func (s *Server) RunQueries() {
@@ -59,14 +61,13 @@ func (s *Server) RunQueries() {
 	}{}
 
 	attrs := map[string]interface{}{
-		"Bugzilla_login": s.Config.User,
+		"Bugzilla_login":    s.Config.User,
 		"Bugzilla_password": s.Config.Password,
 
-		"product": products,
+		"product":   products,
 		"component": s.Config.Components,
-		"severity": severity,
-		"status": status,
-
+		"severity":  severity,
+		"status":    status,
 	}
 
 	client, err := xmlrpc.NewClient("https://bugzilla.redhat.com/xmlrpc.cgi", nil)
@@ -102,14 +103,12 @@ func (s *Server) RunQueries() {
 	sortedTeams := sortMapKeys(teamCounts)
 	sortedComponents := sortMapKeys(componentCounts)
 
-
-
-	headers := []string{"total"}
+	headers := []string{"date", "total"}
 	headers = append(headers, sortedTeams...)
 	headers = append(headers, sortedComponents...)
 
 	// setup the data
-	data := []string{fmt.Sprintf("%d", len(filteredBugs))}
+	data := []string{time.Now().Format(time.RFC3339), fmt.Sprintf("%d", len(filteredBugs))}
 
 	for _, team := range sortedTeams {
 		data = append(data, fmt.Sprintf("%d", teamCounts[team]))
@@ -118,10 +117,36 @@ func (s *Server) RunQueries() {
 		data = append(data, fmt.Sprintf("%d", componentCounts[c]))
 	}
 
+	fileName := filepath.Join(s.Config.DataDir, "data.txt")
+	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND, 0750)
+	newFile := false
+	if err != nil {
+		if os.IsNotExist(err) {
+			file, err = os.Create(fileName)
+			if err != nil {
+				glog.Errorf("error creating file: %v", err)
+				return
+			}
+			newFile = true
+		} else {
 
-
-	fmt.Printf("%v\n", strings.Join(headers, "\t"))
-	fmt.Printf("%v\n", strings.Join(data, "\t"))
+			glog.Errorf("error opening file: %v", err)
+			return
+		}
+	}
+	defer file.Close()
+	csvWriter := csv.NewWriter(file)
+	if newFile {
+		err = csvWriter.Write(headers)
+		if err != nil {
+			glog.Errorf("error writing to file: %v", err)
+		}
+	}
+	err = csvWriter.Write(data)
+	if err != nil {
+		glog.Errorf("error writing to file: %v", err)
+	}
+	csvWriter.Flush()
 
 }
 
@@ -135,7 +160,7 @@ func hasUpcomingRelease(keywords []string) bool {
 }
 func hasVersion3(versions []string) bool {
 	for _, v := range versions {
-		if strings.HasPrefix(v, "3."){
+		if strings.HasPrefix(v, "3.") {
 			return true
 		}
 	}
@@ -175,9 +200,3 @@ func (s *Server) getTeamForComponent(component string) string {
 	glog.Errorf("unknown component for team: %s", component)
 	return "unknown"
 }
-
-// read json
-// run queries on a schedule and save data
-// format data for charting and save data
-// run web server
-// display pages

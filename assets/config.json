@@ -7,5 +7,6 @@
         "ui": ["Command Line Interface", "Management Console", "Design"]
     },
     "user": "",
-    "password": ""
+    "password": "",
+    "dataDir": "/home/pweil/codebase/bzreports/src/github.com/pweil-/bzreports"
 }
