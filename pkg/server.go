@@ -1,4 +1,4 @@
-package main
+package bzreports
 
 import (
 	"encoding/csv"
@@ -13,47 +13,19 @@ import (
 	"github.com/kolo/xmlrpc"
 )
 
-/*
-New bugs today
-How many bugs were resolved from the query (ie. closed, verified, or moved off the team)
-*/
-
-type Config struct {
-	ComponentOwners map[string][]string
-	Components      []string
-	DataDir         string
-	User            string
-	Password        string
+func validate(config *Config) error {
+	if config == nil {
+		return fmt.Errorf("config cannot be nil")
+	}
+	if config.User == "" || config.Password == "" {
+		return fmt.Errorf("invalid username/password")
+	}
+	return nil
 }
 
-type Server struct {
-	Config Config
-}
-
-// initial struct borrowed from github.com/dmacvicar/gorgojo
-type Bug struct {
-	Id             int       `xmlrpc:"id"`
-	Summary        string    `xmlrpc:"summary"`
-	CreationTime   time.Time `xmlrpc:"creation_time"`
-	AssignedTo     string    `xmlrpc:"assigned_to"`
-	Component      []string  `xmlrpc:"component"`
-	LastChangeTime time.Time `xmlrpc:"last_change_time"`
-	Severity       string    `xmlrpc:"severity"`
-	Status         string    `xmlrpc:"status"`
-	Keywords       []string  `xmlrpc:"keywords"`
-	Version        []string  `xmlrpc:"version"`
-}
-
-var (
-	products = []string{"OpenShift Container Platform", "OpenShift Online", "OpenShift Origin"}
-	severity = []string{"unspecified", "urgent", "high", "medium"}
-	status   = []string{"NEW", "ASSIGNED", "POST", "MODIFIED", "ON_DEV"}
-)
-
-func (s *Server) RunQueries() {
-	if s.Config.User == "" || s.Config.Password == "" {
-		glog.Errorf("invalid username/password")
-		return
+func (s *Server) RunReports() error {
+	if err := validate(&s.Config); err != nil {
+		return err
 	}
 
 	ret := struct {
@@ -70,31 +42,37 @@ func (s *Server) RunQueries() {
 		"status":    status,
 	}
 
+	glog.Infof("creating client...")
 	client, err := xmlrpc.NewClient("https://bugzilla.redhat.com/xmlrpc.cgi", nil)
 	if err != nil {
-		glog.Errorf("error creating xmlrpc client: %v", err)
-		return
-	}
+		return fmt.Errorf("error creating xmlrpc client: %v", err)
 
+	}
+	glog.Infof("client created...")
+
+	glog.Infof("running query...")
 	if err := client.Call("Bug.search", attrs, &ret); err != nil {
-		glog.Errorf("%#v", err)
+		return fmt.Errorf("error calling Bug.search: %#v", err)
 	}
+	glog.Infof("query run...")
 
+	glog.Infof("filtering...")
 	filteredBugs := []Bug{}
-
 	for i, bug := range ret.Bugs {
 		if !hasUpcomingRelease(bug.Keywords) && hasVersion3(bug.Version) {
 			filteredBugs = append(filteredBugs, ret.Bugs[i])
 		}
 	}
+	glog.Infof("bugs filtered...")
 
-	componentCounts := map[string]int{}
+	glog.Infof("formatting data...")
+	componentCounts := s.makeComponentCountMap()
 	for _, bug := range filteredBugs {
 		for _, component := range bug.Component {
 			componentCounts[component] = componentCounts[component] + 1
 		}
 	}
-	teamCounts := map[string]int{}
+	teamCounts := s.makeTeamCountMap()
 	for component, count := range componentCounts {
 		team := s.getTeamForComponent(component)
 		teamCounts[team] = teamCounts[team] + count
@@ -116,22 +94,22 @@ func (s *Server) RunQueries() {
 	for _, c := range sortedComponents {
 		data = append(data, fmt.Sprintf("%d", componentCounts[c]))
 	}
+	glog.Infof("data formatted...")
 
 	fileName := filepath.Join(s.Config.DataDir, "data.txt")
+
+	glog.Infof("writing to %s...", fileName)
 	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND, 0750)
 	newFile := false
 	if err != nil {
 		if os.IsNotExist(err) {
 			file, err = os.Create(fileName)
 			if err != nil {
-				glog.Errorf("error creating file: %v", err)
-				return
+				return fmt.Errorf("error creating file: %v", err)
 			}
 			newFile = true
 		} else {
-
-			glog.Errorf("error opening file: %v", err)
-			return
+			return fmt.Errorf("error opening file: %v", err)
 		}
 	}
 	defer file.Close()
@@ -139,15 +117,57 @@ func (s *Server) RunQueries() {
 	if newFile {
 		err = csvWriter.Write(headers)
 		if err != nil {
-			glog.Errorf("error writing to file: %v", err)
+			return fmt.Errorf("error writing to file: %v", err)
 		}
 	}
 	err = csvWriter.Write(data)
 	if err != nil {
-		glog.Errorf("error writing to file: %v", err)
+		return fmt.Errorf("error writing to file: %v", err)
 	}
 	csvWriter.Flush()
+	glog.Infof("done!")
+	return nil
+}
 
+func (s *Server) makeTeamCountMap() map[string]int {
+	teamCounts := map[string]int{}
+	for team, _ := range s.Config.ComponentOwners {
+		teamCounts[team] = 0
+	}
+	return teamCounts
+}
+
+func (s *Server) makeComponentCountMap() map[string]int {
+	componentCounts := map[string]int{}
+	for _, component := range s.Config.Components {
+		componentCounts[component] = 0
+	}
+	return componentCounts
+}
+
+func (s *Server) createHeaders() []string {
+	headers := []string{"total"}
+
+	for team, _ := range s.Config.ComponentOwners {
+		headers = append(headers, team)
+	}
+
+	for _, c := range s.Config.Components {
+		headers = append(headers, c)
+	}
+	return headers
+}
+
+func (s *Server) getTeamForComponent(component string) string {
+	for team, components := range s.Config.ComponentOwners {
+		for _, c := range components {
+			if c == component {
+				return team
+			}
+		}
+	}
+	glog.Errorf("unknown component for team: %s", component)
+	return "unknown"
 }
 
 func hasUpcomingRelease(keywords []string) bool {
@@ -174,29 +194,4 @@ func sortMapKeys(m map[string]int) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func (s *Server) createHeaders() []string {
-	headers := []string{"total"}
-
-	for team, _ := range s.Config.ComponentOwners {
-		headers = append(headers, team)
-	}
-
-	for _, c := range s.Config.Components {
-		headers = append(headers, c)
-	}
-	return headers
-}
-
-func (s *Server) getTeamForComponent(component string) string {
-	for team, components := range s.Config.ComponentOwners {
-		for _, c := range components {
-			if c == component {
-				return team
-			}
-		}
-	}
-	glog.Errorf("unknown component for team: %s", component)
-	return "unknown"
 }

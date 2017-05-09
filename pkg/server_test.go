@@ -1,4 +1,4 @@
-package main
+package bzreports
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ func TestQueries(t *testing.T) {
 	json.Unmarshal(file, &config)
 
 	server.Config = config
-	server.RunQueries()
+	server.RunReports()
 	t.Errorf("foo")
 }
 
