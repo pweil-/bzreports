@@ -1,0 +1,11 @@
+{
+    "components": ["Build", "Templates", "Image", "Auth", "Deployments", "Image Registry", "REST API", "Metrics", "Logging", "Command Line Interface", "Management Console", "Design"],
+    "componentOwners": {
+        "devex": ["Build", "Templates", "Image"],
+        "pm": ["Auth", "Deployments", "Image Registry", "REST API"],
+        "is": ["Metrics", "Logging"],
+        "ui": ["Command Line Interface", "Management Console", "Design"]
+    },
+    "user": "",
+    "password": ""
+}
