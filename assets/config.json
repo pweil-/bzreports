@@ -6,6 +6,7 @@
         "is": ["Metrics", "Logging"],
         "ui": ["Command Line Interface", "Management Console", "Design"]
     },
+    "excludeTargetReleasePrefix": ["2.", "3.7"],
     "user": "",
     "password": "",
     "dataDir": "/home/pweil/codebase/bzreports/src/github.com/pweil-/bzreports"

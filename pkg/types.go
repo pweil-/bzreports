@@ -3,11 +3,12 @@ package bzreports
 import "time"
 
 type Config struct {
-	ComponentOwners map[string][]string
-	Components      []string
-	DataDir         string
-	User            string
-	Password        string
+	ComponentOwners            map[string][]string
+	Components                 []string
+	ExcludeTargetReleasePrefix []string
+	DataDir                    string
+	User                       string
+	Password                   string
 }
 
 type Server struct {
@@ -26,6 +27,7 @@ type Bug struct {
 	Status         string    `xmlrpc:"status"`
 	Keywords       []string  `xmlrpc:"keywords"`
 	Version        []string  `xmlrpc:"version"`
+	TargetRelease  []string  `xmlrpc:"target_release"`
 }
 
 var (

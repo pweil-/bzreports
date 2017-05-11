@@ -59,8 +59,9 @@ func (s *Server) RunReports() error {
 	glog.Infof("filtering...")
 	filteredBugs := []Bug{}
 	for i, bug := range ret.Bugs {
-		if !hasUpcomingRelease(bug.Keywords) && hasVersion3(bug.Version) {
-			filteredBugs = append(filteredBugs, ret.Bugs[i])
+		if !hasUpcomingRelease(bug.Keywords) && hasVersion3(bug.Version) &&
+			!excludeTargetReleasePrefix(s.Config.ExcludeTargetReleasePrefix, bug.TargetRelease) {
+				filteredBugs = append(filteredBugs, ret.Bugs[i])
 		}
 	}
 	glog.Infof("bugs filtered...")
@@ -168,6 +169,20 @@ func (s *Server) getTeamForComponent(component string) string {
 	}
 	glog.Errorf("unknown component for team: %s", component)
 	return "unknown"
+}
+
+func excludeTargetReleasePrefix(exclusions []string, targetRelease []string) bool {
+	// just get the first target release, the slice is for the xmlrpc mapping
+	realTargetRelease := ""
+	if len(targetRelease) > 0 {
+		realTargetRelease = targetRelease[0]
+	}
+	for _, excl := range exclusions {
+		if strings.HasPrefix(realTargetRelease, excl) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasUpcomingRelease(keywords []string) bool {
